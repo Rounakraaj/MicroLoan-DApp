@@ -1,0 +1,49 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_34-30b9076fbb1493caddd5f348fef55198a01f7ec6",
+  "solcVersion": "0.8.34",
+  "solcLongVersion": "0.8.34+commit.80d5c536",
+  "compilerType": "solc",
+  "toolVersions": {
+    "hardhat": "3.18.0"
+  },
+  "userSourceNameMap": {
+    "contracts/MicroLoan.sol": "project/contracts/MicroLoan.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "osaka",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode.linkReferences",
+            "evm.bytecode.object",
+            "evm.bytecode.opcodes",
+            "evm.bytecode.sourceMap",
+            "evm.deployedBytecode.immutableReferences",
+            "evm.deployedBytecode.linkReferences",
+            "evm.deployedBytecode.object",
+            "evm.deployedBytecode.opcodes",
+            "evm.deployedBytecode.sourceMap",
+            "evm.methodIdentifiers"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/MicroLoan.sol": {
+        "content": "// SPDX-License-Identifier: MIT\r\npragma solidity ^0.8.34;\r\n\r\ncontract MicroLoan {\r\n\r\n    // Possible states of a loan\r\n    enum Status {\r\n        Requested,\r\n        Funded,\r\n        Withdrawn,\r\n        Repaid,\r\n        Defaulted\r\n    }\r\n\r\n    // Loan information\r\n    struct Loan {\r\n        address borrower;\r\n        address lender;\r\n        uint256 principal;\r\n        uint256 repayment;\r\n        uint64 dueDate;\r\n        Status status;\r\n    }\r\n\r\n    // Total number of loans created\r\n    uint256 public loanCount;\r\n\r\n    // Loan ID => Loan information\r\n    mapping(uint256 => Loan) public loans;\r\n\r\n    // Events\r\n    event Requested(\r\n        uint256 indexed id,\r\n        address indexed borrower,\r\n        uint256 principal,\r\n        uint256 repayment,\r\n        uint64 dueDate\r\n    );\r\n\r\n    event Funded(\r\n        uint256 indexed id,\r\n        address indexed lender,\r\n        uint256 amount\r\n    );\r\n\r\n    event Withdrawn(\r\n        uint256 indexed id,\r\n        address indexed borrower,\r\n        uint256 amount\r\n    );\r\n\r\n    event Repaid(\r\n        uint256 indexed id,\r\n        address indexed borrower,\r\n        uint256 amount\r\n    );\r\n\r\n    event Defaulted(\r\n        uint256 indexed id\r\n    );\r\n\r\n\r\n    // ============================================================\r\n    // 1. BORROWER REQUESTS A LOAN\r\n    // ============================================================\r\n\r\n    function requestLoan(\r\n        uint256 principal,\r\n        uint256 repayment,\r\n        uint64 dueDate\r\n    ) external returns (uint256) {\r\n\r\n        require(\r\n            principal > 0,\r\n            \"Principal must be greater than zero\"\r\n        );\r\n\r\n        require(\r\n            repayment >= principal,\r\n            \"Repayment must be at least principal\"\r\n        );\r\n\r\n        require(\r\n            dueDate > block.timestamp,\r\n            \"Due date must be in the future\"\r\n        );\r\n\r\n        uint256 id = loanCount;\r\n\r\n        loanCount++;\r\n\r\n        loans[id] = Loan({\r\n            borrower: msg.sender,\r\n            lender: address(0),\r\n            principal: principal,\r\n            repayment: repayment,\r\n            dueDate: dueDate,\r\n            status: Status.Requested\r\n        });\r\n\r\n        emit Requested(\r\n            id,\r\n            msg.sender,\r\n            principal,\r\n            repayment,\r\n            dueDate\r\n        );\r\n\r\n        return id;\r\n    }\r\n\r\n\r\n    // ============================================================\r\n    // 2. LENDER FUNDS THE LOAN\r\n    // ============================================================\r\n\r\n    function fundLoan(\r\n        uint256 id\r\n    ) external payable {\r\n\r\n        Loan storage loan = loans[id];\r\n\r\n        require(\r\n            id < loanCount,\r\n            \"Loan does not exist\"\r\n        );\r\n\r\n        require(\r\n            loan.status == Status.Requested,\r\n            \"Loan is not available\"\r\n        );\r\n\r\n        require(\r\n            msg.value == loan.principal,\r\n            \"Incorrect funding amount\"\r\n        );\r\n\r\n        loan.lender = msg.sender;\r\n\r\n        loan.status = Status.Funded;\r\n\r\n        emit Funded(\r\n            id,\r\n            msg.sender,\r\n            msg.value\r\n        );\r\n    }\r\n\r\n\r\n    // ============================================================\r\n    // 3. BORROWER WITHDRAWS THE FUNDED LOAN\r\n    // ============================================================\r\n\r\n    function withdrawLoan(\r\n        uint256 id\r\n    ) external {\r\n\r\n        Loan storage loan = loans[id];\r\n\r\n        require(\r\n            id < loanCount,\r\n            \"Loan does not exist\"\r\n        );\r\n\r\n        require(\r\n            msg.sender == loan.borrower,\r\n            \"Only borrower can withdraw\"\r\n        );\r\n\r\n        require(\r\n            loan.status == Status.Funded,\r\n            \"Loan is not funded\"\r\n        );\r\n\r\n        loan.status = Status.Withdrawn;\r\n\r\n        // Send principal to borrower\r\n        (bool success, ) = payable(loan.borrower).call{\r\n            value: loan.principal\r\n        }(\"\");\r\n\r\n        require(\r\n            success,\r\n            \"Loan transfer failed\"\r\n        );\r\n\r\n        emit Withdrawn(\r\n            id,\r\n            loan.borrower,\r\n            loan.principal\r\n        );\r\n    }\r\n\r\n\r\n    // ============================================================\r\n    // 4. BORROWER REPAYS THE LOAN\r\n    // ============================================================\r\n\r\n    function repay(\r\n        uint256 id\r\n    ) external payable {\r\n\r\n        Loan storage loan = loans[id];\r\n\r\n        require(\r\n            id < loanCount,\r\n            \"Loan does not exist\"\r\n        );\r\n\r\n        require(\r\n            msg.sender == loan.borrower,\r\n            \"Only borrower can repay\"\r\n        );\r\n\r\n        require(\r\n            loan.status == Status.Withdrawn,\r\n            \"Loan is not active\"\r\n        );\r\n\r\n        require(\r\n            block.timestamp <= loan.dueDate,\r\n            \"Loan is overdue\"\r\n        );\r\n\r\n        require(\r\n            msg.value == loan.repayment,\r\n            \"Incorrect repayment amount\"\r\n        );\r\n\r\n        loan.status = Status.Repaid;\r\n\r\n        // Send repayment to lender\r\n        (bool success, ) = payable(loan.lender).call{\r\n            value: msg.value\r\n        }(\"\");\r\n\r\n        require(\r\n            success,\r\n            \"Repayment transfer failed\"\r\n        );\r\n\r\n        emit Repaid(\r\n            id,\r\n            loan.borrower,\r\n            msg.value\r\n        );\r\n    }\r\n\r\n\r\n    // ============================================================\r\n    // 5. MARK LOAN AS DEFAULTED\r\n    // ============================================================\r\n\r\n    function markDefault(\r\n        uint256 id\r\n    ) external {\r\n\r\n        Loan storage loan = loans[id];\r\n\r\n        require(\r\n            id < loanCount,\r\n            \"Loan does not exist\"\r\n        );\r\n\r\n        require(\r\n            loan.status == Status.Withdrawn,\r\n            \"Loan is not active\"\r\n        );\r\n\r\n        require(\r\n            block.timestamp > loan.dueDate,\r\n            \"Loan is not overdue\"\r\n        );\r\n\r\n        loan.status = Status.Defaulted;\r\n\r\n        emit Defaulted(id);\r\n    }\r\n\r\n\r\n    // ============================================================\r\n    // 6. GET LOAN INFORMATION\r\n    // ============================================================\r\n\r\n    function getLoan(\r\n        uint256 id\r\n    ) external view returns (Loan memory) {\r\n\r\n        require(\r\n            id < loanCount,\r\n            \"Loan does not exist\"\r\n        );\r\n\r\n        return loans[id];\r\n    }\r\n}"
+      }
+    }
+  }
+}
